@@ -1,19 +1,47 @@
-use mini_redis::{client, Result};
+use mini_redis::{Connection, Frame};
+use tokio::net::{TcpListener, TcpStream};
 
-// Allow using async in fn main.
 #[tokio::main]
-// async returns type with Future trait, which needs await to execute.
-async fn main() -> Result<()> {
-    // Build connection with server mini-redis using TCP.
-    let mut client = client::connect("127.0.0.1:6379").await?;
+async fn main() {
+    let listener = TcpListener::bind("127.0.0.1:6379").await.unwrap();
 
-    // Set (key, value): ("hello", "world").
-    client.set("hello", "world".into()).await?;
+    loop {
+        // The item ignored includes messages like IP.
+        let (socket, _) = listener.accept().await.unwrap();
+        // Every connection is moved to a new task, then returns a JoinHandle.
+        // The lifetime of a task must be static.
+        // Task must implement trait Send, allows tasks moving among threads.
+        tokio::spawn(async move {
+            process(socket).await;
+        });
+    }
+}
 
-    // Get value satisfies the given key.
-    let result = client.get("hello").await?;
+async fn process(socket: TcpStream) {
+    use mini_redis::Command::{self, Get, Set};
+    use std::collections::HashMap;
 
-    println!("Capture result from server = {:?}", result);
+    let mut db = HashMap::new();
+    let mut connection = Connection::new(socket);
 
-    Ok(())
+    while let Some(frame) = connection.read_frame().await.unwrap() {
+        let response = match Command::from_frame(frame).unwrap() {
+            Set(cmd) => {
+                // Value is saved as Vec<u8>.
+                db.insert(cmd.key().to_string(), cmd.value().to_vec());
+                Frame::Simple("OK".to_string())
+            }
+            Get(cmd) => {
+                if let Some(value) = db.get(cmd.key()) {
+                    // Frame::Bulk expects type Bytes.
+                    Frame::Bulk(value.clone().into())
+                } else {
+                    Frame::Null
+                }
+            }
+            cmd => panic!("unimplemented {:?}", cmd),
+        };
+
+        connection.write_frame(&response).await.unwrap();
+    }
 }

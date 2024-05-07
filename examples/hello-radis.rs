@@ -1,10 +1,10 @@
 use mini_redis::{client, Result};
 
-// Allow using async in fn main.
+// A macro to start a runtime contains asynchronous task scheduler.
 #[tokio::main]
-// async returns type with Future trait, which needs await to execute.
+// async fn returns an anonymous type implements the Future trait.
 async fn main() -> Result<()> {
-    // Build connection with server mini-redis using TCP.
+    // Open a connection to the mini-redis address using TCP.
     let mut client = client::connect("127.0.0.1:6379").await?;
 
     // Set (key, value): ("hello", "world").

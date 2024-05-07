@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tokio::net::{TcpListener, TcpStream};
 
+// To support HashMap being shared across many tasks and potentially many threads.
 type Db = Arc<Mutex<HashMap<String, Bytes>>>;
 
 #[tokio::main]
@@ -12,7 +13,11 @@ async fn main() {
 
     println!("Listening");
 
-    // In case multiple .await calls should use asynchronous lock provided by tokio::sync::Mutex.
+    // Using Arc allows the HashMap to be referenced concurrently from many tasks,
+    // potentially running on many threads.
+    //
+    // In case contention getting high and the lock is held across calls to .await,
+    // you should use asynchronous mutex provided by tokio: tokio::sync::Mutex.
     let db = Arc::new(Mutex::new(HashMap::new()));
 
     loop {
@@ -21,16 +26,22 @@ async fn main() {
 
         let db = db.clone();
 
-        // Every connection is moved to a new task, then returns a JoinHandle.
-        // The lifetime of a task must be static.
-        // Task must implement trait Send, allows tasks moving among threads.
+        // A new task is spawned for each inbound socket. The socket is
+        // moved to the new task and processed there.
+        //
+        // The tokio::spawn function returns a JoinHandle, which the caller
+        // may use to interact with the spawned task.
+        //
+        // Task spawned must implement Send, allows tasks moved between
+        // threads while they are suspended at an .await.
         tokio::spawn(async move {
             process(socket, db).await;
         });
     }
 }
 
-// Instead of HashMap init, using a handle(Arc) provided by HashMap.
+// Instead of initialization in a HashMap way, using a handle(Arc)
+// provided by HashMap.
 async fn process(socket: TcpStream, db: Db) {
     use mini_redis::Command::{self, Get, Set};
 
@@ -54,6 +65,7 @@ async fn process(socket: TcpStream, db: Db) {
             cmd => panic!("unimplemented {:?}", cmd),
         };
 
+        // Write the response to the client.
         connection.write_frame(&response).await.unwrap();
     }
 }

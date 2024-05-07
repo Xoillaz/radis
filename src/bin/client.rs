@@ -16,12 +16,12 @@ enum Command {
     },
 }
 
-// Manager task may take the result back to the producer.
+// Manager task could take the result back to the producer.
 type Responder<T> = oneshot::Sender<mini_redis::Result<T>>;
 
 #[tokio::main]
 async fn main() {
-    // Generate a channel support multi-producer and one consumer.
+    // Create a channel supports multi-producer and one consumer.
     let (tx, mut rx) = mpsc::channel(32);
     let tx2 = tx.clone();
 
